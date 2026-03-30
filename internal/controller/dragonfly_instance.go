@@ -41,6 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sort"
 )
 
 // DragonflyInstance is an abstraction over the `Dragonfly` CRD and provides methods to handle replication.
@@ -929,6 +930,11 @@ func (dfi *DragonflyInstance) allPodsHealthyAndHaveRole(ctx context.Context, upd
 		return ctrl.Result{}, fmt.Errorf("failed to get dragonfly pods: %w", err)
 	}
 
+	// Sort pods by name to ensure deterministic deletion order across concurrent reconciles.
+	sort.Slice(pods.Items, func(i, j int) bool {
+		return pods.Items[i].Name < pods.Items[j].Name
+	})
+
 	for _, pod := range pods.Items {
 		// Ignore pods that are already terminating
 		if isTerminating(&pod) {
@@ -997,6 +1003,12 @@ func (dfi *DragonflyInstance) updateReplicas(ctx context.Context, replicas *core
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get master before deleting replica: %w", err)
 	}
+
+	// Sort replicas by name to ensure deterministic deletion order across concurrent reconciles.
+	// This prevents a race condition where multiple reconciles could delete different pods simultaneously.
+	sort.Slice(replicas.Items, func(i, j int) bool {
+		return replicas.Items[i].Name < replicas.Items[j].Name
+	})
 
 	// Check if any replica is already terminating.
 	// We want to delete only 1 replica at a time to ensure we have enough replicas for master failover.
